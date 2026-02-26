@@ -18,15 +18,7 @@
         })();
     </script>
     <script>
-        // Force trailing slash for relative paths to work correctly with base: './'
-        (function () {
-            var path = window.location.pathname;
-            if (path.length > 1 && path.charAt(path.length - 1) !== '/') {
-                var search = window.location.search;
-                var hash = window.location.hash;
-                window.location.replace(path + '/' + search + hash);
-            }
-        })();
+        // Note: Cloudflare Pages handles routing via _redirects file
     </script>
     <script>
         // Early performance detection - runs before CSS loads to prevent rendering issues
