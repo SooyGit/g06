@@ -1208,12 +1208,12 @@ function GameApp({ gameState }) {
                             <div className="hidden lg:flex border-b border-theme-border bg-gradient-to-r from-theme-surface/60 via-theme-surface-alt/40 to-theme-surface/60 overflow-x-auto relative">
                                 <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-theme-accent/40 to-transparent" />
                                 {[
-                                    { id: 'build', label: '建设', icon: 'Hammer' },
-                                    { id: 'military', label: '战斗', icon: 'Swords' },
-                                    { id: 'tech', label: '科技', icon: 'Cpu' },
-                                    { id: 'politics', label: '管理', icon: 'Gavel' },
-                                    { id: 'diplo', label: '外联', icon: 'Globe' },
-                                ].map(tab => (
+                                    { id: 'build', label: '建设', icon: 'Hammer', unlockEpoch: 0 },
+                                    { id: 'military', label: '战斗', icon: 'Swords', unlockEpoch: 1 },
+                                    { id: 'tech', label: '科技', icon: 'Cpu', unlockEpoch: 0 },
+                                    { id: 'politics', label: '管理', icon: 'Gavel', unlockEpoch: 2 },
+                                    { id: 'diplo', label: '外联', icon: 'Globe', unlockEpoch: 3 },
+                                ].filter(tab => gameState.epoch >= tab.unlockEpoch).map(tab => (
                                     <button
                                         key={tab.id}
                                         onClick={() => gameState.setActiveTab(tab.id)}

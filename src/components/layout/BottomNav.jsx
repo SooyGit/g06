@@ -12,7 +12,8 @@ const TAB_CONFIG = {
         color: 'from-amber-500 to-yellow-600',
         glow: 'shadow-amber-500/40',
         text: 'text-amber-400',
-        border: 'border-amber-500/50'
+        border: 'border-amber-500/50',
+        unlockEpoch: 0,
     },
     military: {
         label: '战斗',
@@ -20,7 +21,8 @@ const TAB_CONFIG = {
         color: 'from-red-500 to-rose-600',
         glow: 'shadow-red-500/40',
         text: 'text-red-400',
-        border: 'border-red-500/50'
+        border: 'border-red-500/50',
+        unlockEpoch: 1,
     },
     tech: {
         label: '科技',
@@ -28,7 +30,8 @@ const TAB_CONFIG = {
         color: 'from-cyan-500 to-blue-600',
         glow: 'shadow-cyan-500/40',
         text: 'text-cyan-400',
-        border: 'border-cyan-500/50'
+        border: 'border-cyan-500/50',
+        unlockEpoch: 0,
     },
     politics: {
         label: '管理',
@@ -36,7 +39,8 @@ const TAB_CONFIG = {
         color: 'from-purple-500 to-violet-600',
         glow: 'shadow-purple-500/40',
         text: 'text-purple-400',
-        border: 'border-purple-500/50'
+        border: 'border-purple-500/50',
+        unlockEpoch: 2,
     },
     diplo: {
         label: '外联',
@@ -44,16 +48,20 @@ const TAB_CONFIG = {
         color: 'from-emerald-500 to-green-600',
         glow: 'shadow-emerald-500/40',
         text: 'text-emerald-400',
-        border: 'border-emerald-500/50'
+        border: 'border-emerald-500/50',
+        unlockEpoch: 3,
     },
 };
 
 /**
  * 底部导航栏组件 - 史诗金属风格
  * 移动端专用，使用时代主题色背景
+ * 根据当前时代逐步解锁标签页
  */
 export const BottomNav = ({ activeTab, onTabChange, epoch = 0 }) => {
-    const tabs = Object.entries(TAB_CONFIG).map(([id, config]) => ({ id, ...config }));
+    const tabs = Object.entries(TAB_CONFIG)
+        .filter(([, config]) => epoch >= config.unlockEpoch)
+        .map(([id, config]) => ({ id, ...config }));
 
     return (
         <nav

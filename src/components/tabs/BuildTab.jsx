@@ -339,17 +339,17 @@ const MemoCompactBuildingCard = memo(CompactBuildingCard, (prevProps, nextProps)
     ) {
         return false;
     }
-    
+
     // Shallow compare actualOutputByRes (frequently changing object)
     if (!shallowEqual(prevProps.actualOutputByRes, nextProps.actualOutputByRes)) {
         return false;
     }
-    
+
     // Shallow compare unlockedOutput
     if (!shallowEqual(prevProps.unlockedOutput, nextProps.unlockedOutput)) {
         return false;
     }
-    
+
     return true;
 });
 
@@ -448,7 +448,7 @@ const BuildTabComponent = ({
             const count = buildings[building.id] || 0;
             if (count <= 0) return;
             const ownerRole = building.owner;
-            
+
             // 优先使用模拟端预计算的值
             if (buildingJobsRequired[building.id] && buildingJobsRequired[building.id][ownerRole] !== undefined) {
                 corrections[building.id] = buildingJobsRequired[building.id][ownerRole];
@@ -1025,18 +1025,20 @@ const BuildTabComponent = ({
         civic: { name: '市政建筑', icon: 'Home', color: 'text-green-400' },
         military: { name: '战斗建筑', icon: 'Swords', color: 'text-red-400' },
     };
+    // Only show category filter buttons for categories that have available buildings
+    const availableCatKeys = Object.keys(availableBuildingsByCategory);
     const categoryFilters = [
         { key: 'all', label: '全部' },
         { key: 'gather', label: '采集' },
         { key: 'industry', label: '工业' },
         { key: 'civic', label: '市政' },
         { key: 'military', label: '战斗' },
-    ];
+    ].filter(f => f.key === 'all' ? availableCatKeys.length > 1 : availableCatKeys.includes(f.key));
     const [activeCategory, setActiveCategory] = useState('all');
     const categoriesToRender =
         activeCategory === 'all'
-            ? Object.entries(categories)
-            : Object.entries(categories).filter(([key]) => key === activeCategory);
+            ? Object.entries(categories).filter(([key]) => availableCatKeys.includes(key))
+            : Object.entries(categories).filter(([key]) => key === activeCategory && availableCatKeys.includes(key));
 
     // Memoize viewport values to prevent infinite loop
     const viewportScrollY = useMemo(() => viewport.scrollY, [viewport.scrollY]);
@@ -1133,7 +1135,7 @@ const BuildTabComponent = ({
     }, [categoriesToRender, flatItemsByCategory, gridColumns, viewportScrollY, viewportHeight]);
 
     return (
-<div className="space-y-3 build-tab">
+        <div className="space-y-3 build-tab">
             <div className="flex items-center gap-2 text-sm rounded-full glass-ancient border border-ancient-gold/30 p-1 shadow-metal-sm overflow-x-auto">
                 {categoryFilters.map((filter) => {
                     const isActive = filter.key === activeCategory;
@@ -1157,7 +1159,7 @@ const BuildTabComponent = ({
                 const categoryWorkers = categoryWorkersByKey[catKey] || 0;
 
                 return (
-<div key={catKey} className="glass-ancient p-3 rounded-lg border border-ancient-gold/30">
+                    <div key={catKey} className="glass-ancient p-3 rounded-lg border border-ancient-gold/30">
                         {/* 类别标题 */}
                         <h3 className="text-sm font-bold mb-3 flex items-center gap-2 text-gray-300 font-decorative">
                             <Icon name={catInfo.icon} size={16} className={catInfo.color} />
