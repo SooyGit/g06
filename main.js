@@ -37,7 +37,7 @@ const state = {
     regenRate: 1.0, // Multiplier for speed
     energyRegenTimer: 0,
     cardLevels: {
-        angel: 1, fireball: 1, mine: 1, titan: 1, dragon: 1, gaze: 1
+        angel: 1, archer: 1, fireball: 1, mine: 1, titan: 1, mage: 1, dragon: 1, gaze: 1
     },
     // Dynamic Stats (Upgradable)
     wallMaxHP: WALL_MAX_HP,
@@ -53,9 +53,11 @@ const state = {
 
 const BUILDING_TYPES = {
     angel: { icon: '👼', cost: 2, quality: 1 },
+    archer: { icon: '🏹', cost: 3, quality: 1 },
     mine: { icon: '⛏️', cost: 9, quality: 2 },
     fireball: { icon: '🔥', cost: 4, quality: 2 },
     titan: { icon: '🧌', cost: 5, quality: 3 },
+    mage: { icon: '🧙', cost: 7, quality: 3 },
     dragon: { icon: '🐉', cost: 8, quality: 3 },
     gaze: { icon: '👁️', cost: 10, quality: 4 }
 };
@@ -76,6 +78,12 @@ const DOM = {
 
 function init() {
     createGrid();
+    // Initialize lifespan for any starting mines
+    state.grid.forEach((b, idx) => {
+        if (b && b.type === 'mine' && b.productionsLeft === undefined) {
+            b.productionsLeft = 18;
+        }
+    });
     initCardSystem();
     setupDragEvents();
 
@@ -251,7 +259,7 @@ function playCard(index) {
     placeBuilding(targetSlot, {
         id: `b_${Math.random().toString(36).substr(2, 9)}`,
         type: cardType,
-        level: state.cardLevels[cardType],
+        level: state.cardLevels[cardType] || 1,
         buffed: false,
         timer: 0
     });
@@ -374,7 +382,7 @@ function restartGame() {
     state.allyStatMult = 1.0;
     state.costOffset = 0;
     state.regenRate = 1.0;
-    state.cardLevels = { angel: 1, fireball: 1, mine: 1, titan: 1, dragon: 1, gaze: 1 };
+    state.cardLevels = { angel: 1, archer: 1, fireball: 1, mine: 1, titan: 1, mage: 1, dragon: 1, gaze: 1 };
 
     DOM.battleArea.classList.remove('night');
     DOM.managementArea.classList.remove('night');
@@ -391,6 +399,10 @@ function restartGame() {
 }
 
 function placeBuilding(index, buildingData) {
+    // Initialize lifespan ONLY for mines
+    if (buildingData.type === 'mine') {
+        buildingData.productionsLeft = 18;
+    }
     state.grid[index] = buildingData;
     renderCell(index);
     updateGazeVisuals();
@@ -404,15 +416,20 @@ function renderCell(index) {
     if (data) {
         const config = BUILDING_TYPES[data.type];
         const isBuffed = getCellSpeedMultiplier(index) > 1.0 || data.type === 'gaze';
-        let infoBadgeHtml = `<div class="info-badge level-badge">${data.level}</div>`;
+        const level = data.level || 1;
+        let infoBadgeHtml = `<div class="info-badge level-badge">${level}</div>`;
 
-        // If it's a spawner, we want to show capacity
-        if (['angel', 'titan', 'dragon'].includes(data.type)) {
+        // If it's a spawner or mine, show capacity and/or lifespan
+        if (['angel', 'titan', 'dragon', 'archer', 'mage'].includes(data.type)) {
             if (!data.id) {
                 data.id = 'b_' + Math.random().toString(36).substr(2, 9);
             }
             const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === data.id).length;
-            infoBadgeHtml += `<div class="info-badge cap-badge">${currentUnits}/${data.level}</div>`;
+            infoBadgeHtml += `<div class="info-badge cap-badge">${currentUnits}/${level}</div>`;
+        }
+
+        if (data.productionsLeft !== undefined) {
+            infoBadgeHtml += `<div class="info-badge cap-badge">${data.productionsLeft}/18</div>`;
         }
 
         cell.innerHTML = `
@@ -740,6 +757,11 @@ function updateCombat(dt) {
         energyNumEl.textContent = `${state.gold}/${state.maxEnergy}`;
     }
 
+    // Energy Full Warning
+    const isFull = state.gold >= state.maxEnergy;
+    if (energyFillEl) energyFillEl.classList.toggle('full', isFull);
+    if (energyNumEl) energyNumEl.classList.toggle('full', isFull);
+
     // 1. Spawner & Mine Logic with cap checks
     state.grid.forEach((b, idx) => {
         if (!b || b.type === 'gaze') return;
@@ -748,7 +770,7 @@ function updateCombat(dt) {
         let isAtCapacity = false;
         let currentUnits = 0;
 
-        if (['angel', 'titan', 'dragon'].includes(b.type)) {
+        if (['angel', 'titan', 'dragon', 'archer', 'mage'].includes(b.type)) {
             currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
             if (currentUnits >= b.level) isAtCapacity = true;
         }
@@ -883,9 +905,53 @@ function updateCombat(dt) {
                 }
 
                 if (dist > 5) {
-                    const moveDist = ent.speed * (dt / 1000);
-                    ent.x += nx * moveDist;
-                    ent.y += ny * moveDist;
+                    const moveSpeed = ent.speed * (dt / 1000);
+                    ent.x += nx * moveSpeed;
+                    ent.y += ny * moveSpeed;
+                }
+            } else if (ent.range) {
+                // Ranged Ally Day Logic
+                const activeEnemies = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0);
+                if (activeEnemies.length > 0) {
+                    let nearest = activeEnemies[0];
+                    let minDist = Math.hypot(nearest.x - ent.x, nearest.y - ent.y);
+                    for (let j = 1; j < activeEnemies.length; j++) {
+                        const d = Math.hypot(activeEnemies[j].x - ent.x, activeEnemies[j].y - ent.y);
+                        if (d < minDist) {
+                            minDist = d;
+                            nearest = activeEnemies[j];
+                        }
+                    }
+
+                    if (minDist > ent.range) {
+                        // Move closer
+                        const dx = nearest.x - ent.x;
+                        const dy = nearest.y - ent.y;
+                        const dist = Math.hypot(dx, dy);
+                        const moveDist = ent.speed * (dt / 1000);
+                        ent.x += (dx / dist) * moveDist;
+                        ent.y += (dy / dist) * moveDist;
+                    } else {
+                        // In range, attack
+                        ent.attackTimer = (ent.attackTimer || 0) + dt;
+                        if (ent.attackTimer >= ent.attackCD) {
+                            ent.attackTimer = 0;
+                            const isMage = ent.id.startsWith('mg_');
+                            state.battle.entities.push({
+                                id: 'p_' + Math.random().toString(36).substr(2, 9),
+                                type: 'projectile',
+                                subType: isMage ? 'mage-bolt' : 'arrow',
+                                x: ent.x,
+                                y: ent.y,
+                                radius: isMage ? 8 : 4,
+                                hp: 1,
+                                damage: ent.damage,
+                                speed: isMage ? 400 : 800,
+                                target: nearest,
+                                splashRadius: isMage ? 50 : 0
+                            });
+                        }
+                    }
                 }
             } else {
                 // Find nearest enemy to track (Day Phase)
@@ -997,6 +1063,14 @@ function updateCombat(dt) {
                     spawnFloatingText("BOOM!", ent.x, ent.y, "#ef4444");
                 } else if (hasTarget) {
                     ent.target.hp -= ent.damage;
+                    if (ent.splashRadius > 0) {
+                        const targets = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0 && e !== ent.target);
+                        targets.forEach(t => {
+                            const d = Math.hypot(t.x - ent.x, t.y - ent.y);
+                            if (d <= ent.splashRadius) t.hp -= ent.damage * 0.5;
+                        });
+                        spawnExplosionEffect(ent.x, ent.y, ent.splashRadius, '#3b82f6');
+                    }
                 }
                 ent.hp = 0; // kill projectile
             } else {
@@ -1099,6 +1173,21 @@ function triggerBuilding(b, idx) {
 
     const statMult = state.allyStatMult || 1.0;
 
+    // Lifespan decrement
+    if (b.productionsLeft !== undefined) {
+        b.productionsLeft--;
+        if (b.productionsLeft <= 0) {
+            setTimeout(() => {
+                state.grid[idx] = null;
+                renderCell(idx);
+                spawnFloatingText("耗尽！", rect.left + rect.width / 2 - containerRect.left, rect.top - containerRect.top, "#94a3b8");
+            }, 100);
+        } else {
+            // Update display
+            renderCell(idx);
+        }
+    }
+
     if (b.type === 'mine') {
         const spawnX = rect.left + rect.width / 2 - containerRect.left;
         const spawnY = rect.top - containerRect.top;
@@ -1144,51 +1233,90 @@ function triggerBuilding(b, idx) {
             });
         }
     }
-    else if (b.type === 'angel' || b.type === 'fireball') {
+    else if (b.type === 'angel') {
         const spawnX = (rect.left + rect.width / 2) - containerRect.left;
         const spawnY = (rect.top + rect.height / 2) - containerRect.top;
-
-        if (b.type === 'angel') {
-            const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
-            if (currentUnits < b.level) {
-                state.battle.entities.push({
-                    id: 'a_' + Math.random().toString(36).substr(2, 9),
-                    origin: b.id,
-                    type: 'ally',
-                    x: spawnX,
-                    y: spawnY,
-                    radius: 12,
-                    hp: 20 * b.level * statMult,
-                    damage: 15 * b.level * statMult,
-                    speed: 80
-                });
-            }
+        const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
+        if (currentUnits < (b.level || 1)) {
+            state.battle.entities.push({
+                id: 'a_' + Math.random().toString(36).substr(2, 9),
+                origin: b.id,
+                type: 'ally',
+                x: spawnX,
+                y: spawnY,
+                radius: 12,
+                hp: 20 * (b.level || 1) * statMult,
+                damage: 15 * (b.level || 1) * statMult,
+                speed: 80
+            });
         }
-        else if (b.type === 'fireball') {
-            const enemies = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0);
-            if (enemies.length > 0) {
-                enemies.sort((e1, e2) => {
-                    const d1 = Math.hypot(e1.x - spawnX, e1.y - spawnY);
-                    const d2 = Math.hypot(e2.x - spawnX, e2.y - spawnY);
-                    return d1 - d2;
-                });
-                const target = enemies[0];
+    }
+    else if (b.type === 'archer') {
+        const spawnX = (rect.left + rect.width / 2) - containerRect.left;
+        const spawnY = (rect.top + rect.height / 2) - containerRect.top;
+        const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
+        if (currentUnits < (b.level || 1)) {
+            state.battle.entities.push({
+                id: 'ar_' + Math.random().toString(36).substr(2, 9),
+                origin: b.id,
+                type: 'ally',
+                x: spawnX,
+                y: spawnY,
+                radius: 12,
+                hp: 30 * (b.level || 1) * statMult,
+                damage: 20 * (b.level || 1) * statMult,
+                speed: 60,
+                range: 250,
+                attackCD: 1200
+            });
+        }
+    }
+    else if (b.type === 'mage') {
+        const spawnX = (rect.left + rect.width / 2) - containerRect.left;
+        const spawnY = (rect.top + rect.height / 2) - containerRect.top;
+        const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
+        if (currentUnits < (b.level || 1)) {
+            state.battle.entities.push({
+                id: 'mg_' + Math.random().toString(36).substr(2, 9),
+                origin: b.id,
+                type: 'ally',
+                x: spawnX,
+                y: spawnY,
+                radius: 14,
+                hp: 40 * (b.level || 1) * statMult,
+                damage: 35 * (b.level || 1) * statMult,
+                speed: 50,
+                range: 180,
+                attackCD: 2000
+            });
+        }
+    }
+    else if (b.type === 'fireball') {
+        const spawnX = rect.left + rect.width / 2 - containerRect.left;
+        const spawnY = rect.top - containerRect.top;
+        const enemies = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0);
+        if (enemies.length > 0) {
+            enemies.sort((e1, e2) => {
+                const d1 = Math.hypot(e1.x - spawnX, e1.y - spawnY);
+                const d2 = Math.hypot(e2.x - spawnX, e2.y - spawnY);
+                return d1 - d2;
+            });
+            const target = enemies[0];
 
-                state.battle.entities.push({
-                    id: 'p_' + Math.random().toString(36).substr(2, 9),
-                    type: 'projectile',
-                    x: spawnX,
-                    y: spawnY,
-                    radius: 5,
-                    hp: 1,
-                    damage: 20 * b.level * statMult,
-                    speed: 600,
-                    target: target,
-                    lastTargetX: target.x,
-                    lastTargetY: target.y,
-                    isFireball: true
-                });
-            }
+            state.battle.entities.push({
+                id: 'p_' + Math.random().toString(36).substr(2, 9),
+                type: 'projectile',
+                x: spawnX,
+                y: spawnY,
+                radius: 5,
+                hp: 1,
+                damage: 20 * (b.level || 1) * statMult,
+                speed: 600,
+                target: target,
+                lastTargetX: target.x,
+                lastTargetY: target.y,
+                isFireball: true
+            });
         }
     }
 }
@@ -1244,12 +1372,13 @@ function showNightChoice() {
     const pool = [
         {
             title: '强化训练',
-            sub: '随机一个场上建筑等级 +1',
+            sub: '随机一个防御塔或眼怪等级 +1',
             icon: '🔥',
             action: () => {
-                const builtIndices = state.grid.map((b, i) => b && b.type !== 'gaze' ? i : -1).filter(i => i !== -1);
-                if (builtIndices.length > 0) {
-                    const idx = builtIndices[Math.floor(Math.random() * builtIndices.length)];
+                // Production buildings are non-upgradable as per user request
+                const upgradeableIndices = state.grid.map((b, i) => b && (b.type === 'fireball' || b.type === 'gaze') ? i : -1).filter(i => i !== -1);
+                if (upgradeableIndices.length > 0) {
+                    const idx = upgradeableIndices[Math.floor(Math.random() * upgradeableIndices.length)];
                     state.grid[idx].level++;
                     renderCell(idx);
                 }

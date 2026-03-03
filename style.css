@@ -594,6 +594,58 @@ body {
     transition: width 0.1s linear;
 }
 
+.elixir-fill.full {
+    background: linear-gradient(to bottom, #ef4444, #b91c1c);
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.8);
+    animation: energyWarningPulse 1s infinite alternate;
+}
+
+.energy-number.full {
+    color: #ef4444;
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+    animation: warningShake 0.5s infinite;
+}
+
+@keyframes energyWarningPulse {
+    from {
+        opacity: 0.8;
+    }
+
+    to {
+        opacity: 1;
+        filter: brightness(1.2);
+    }
+}
+
+@keyframes warningShake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(-1px);
+    }
+
+    75% {
+        transform: translateX(1px);
+    }
+}
+
+.entity.projectile.arrow {
+    width: 12px;
+    height: 3px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.entity.projectile.mage-bolt {
+    background: radial-gradient(circle, #60a5fa, #7e22ce);
+    box-shadow: 0 0 12px #3b82f6;
+}
+
 .elixir-segments {
     position: absolute;
     inset: 0;
