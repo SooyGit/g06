@@ -29,6 +29,7 @@ const state = {
         enemiesSpawnedThisDay: 0,
         enemiesDefeatedThisDay: 0,
         nightTimer: 0,
+        waveBreakTimer: 0,
         lastTime: performance.now()
     },
     gold: 0,
@@ -85,7 +86,7 @@ function init() {
     requestAnimationFrame(gameLoop);
 }
 
-function isCellBuffed(idx) {
+function getCellSpeedMultiplier(idx) {
     const r = Math.floor(idx / GRID_COLS);
     const c = idx % GRID_COLS;
 
@@ -95,8 +96,15 @@ function isCellBuffed(idx) {
     if (c > 0) neighbors.push(idx - 1); // Left
     if (c < GRID_COLS - 1) neighbors.push(idx + 1); // Right
 
-    // Check if any neighbor is a gaze tower
-    return neighbors.some(n => state.grid[n] && state.grid[n].type === 'gaze');
+    let bonus = 0;
+    neighbors.forEach(n => {
+        const neighbor = state.grid[n];
+        if (neighbor && neighbor.type === 'gaze') {
+            bonus += 0.5 * neighbor.level;
+        }
+    });
+
+    return 1.0 + bonus;
 }
 
 function updateGazeVisuals() {
@@ -395,7 +403,7 @@ function renderCell(index) {
     const data = state.grid[index];
     if (data) {
         const config = BUILDING_TYPES[data.type];
-        const isBuffed = isCellBuffed(index) || data.type === 'gaze';
+        const isBuffed = getCellSpeedMultiplier(index) > 1.0 || data.type === 'gaze';
         let infoBadgeHtml = `<div class="info-badge level-badge">${data.level}</div>`;
 
         // If it's a spawner, we want to show capacity
@@ -488,13 +496,17 @@ function handlePointerDown(e) {
     ghost.dataset.type = bData.type;
 
     if (sourceType === 'grid') {
-        if (isCellBuffed(index) || bData.type === 'gaze') ghost.classList.add('buffed');
+        if (getCellSpeedMultiplier(index) > 1.0 || bData.type === 'gaze') ghost.classList.add('buffed');
     }
 
-    // Set ghost content to be just the icon for a clean "building ghost" look
-    ghost.innerHTML = `<span class="icon">${BUILDING_TYPES[bData.type].icon}</span>`;
-    ghost.style.width = `${rect.width}px`;
-    ghost.style.height = `${rect.height}px`;
+    // Set ghost content to be square and show level
+    ghost.innerHTML = `
+        <span class="icon">${BUILDING_TYPES[bData.type].icon}</span>
+        <div class="info-badge level-badge">${bData.level}</div>
+    `;
+    const ghostSize = Math.max(rect.width, rect.height);
+    ghost.style.width = `${ghostSize}px`;
+    ghost.style.height = `${ghostSize}px`;
 
     updateGhostPosition(e.clientX, e.clientY);
     updateGazeVisuals();
@@ -676,18 +688,28 @@ function updateCombat(dt) {
     if (state.battle.phase === 'day') {
         const activeEnemies = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0);
         if (state.battle.enemiesSpawnedThisDay >= 20 && activeEnemies.length === 0) {
-            // Day over
-            if (state.battle.dayCounter % 3 === 0) {
-                // Reward Day
-                state.battle.phase = 'night';
-                state.isChoosingReward = true;
-                DOM.battleArea.classList.add('night');
-                DOM.managementArea.classList.add('night');
-                showNightChoice();
-            } else {
-                // Regular Day, skip choice
-                applyRewardEnd();
+            // Day over - 5s rest pause
+            state.battle.waveBreakTimer += dt;
+            const nextWaveNum = state.battle.dayCounter + 1;
+            const countdown = Math.ceil((5000 - state.battle.waveBreakTimer) / 1000);
+            DOM.phaseText.textContent = `第 ${nextWaveNum} 关来临 (${countdown})`;
+
+            if (state.battle.waveBreakTimer >= 5000) {
+                state.battle.waveBreakTimer = 0;
+                if (state.battle.dayCounter % 3 === 0) {
+                    // Reward Day
+                    state.battle.phase = 'night';
+                    state.isChoosingReward = true;
+                    DOM.battleArea.classList.add('night');
+                    DOM.managementArea.classList.add('night');
+                    showNightChoice();
+                } else {
+                    // Regular Day, skip choice
+                    applyRewardEnd();
+                }
             }
+        } else {
+            state.battle.waveBreakTimer = 0; // reset if enemies still alive
         }
     }
 
@@ -740,10 +762,9 @@ function updateCombat(dt) {
         }
 
         // Ticking
+        const cellMult = getCellSpeedMultiplier(idx);
         if (!isAtCapacity) {
-            const isBuffed = isCellBuffed(idx);
-            const baseSpeed = isBuffed ? 1.0 : 0.25;
-            const speed = baseSpeed * (state.buildingSpeedMult || 1.0);
+            const speed = cellMult * (state.buildingSpeedMult || 1.0);
             b.timer += dt * speed;
 
             if (b.timer >= BUILDING_CD_MAX) {
@@ -761,7 +782,7 @@ function updateCombat(dt) {
         if (bar) {
             const progress = (b.timer / BUILDING_CD_MAX) * 100;
             bar.style.width = `${Math.min(progress, 100)}%`;
-            if (isCellBuffed(idx)) bar.classList.add('gold');
+            if (cellMult > 1.0) bar.classList.add('gold');
             else bar.classList.remove('gold');
         }
 
@@ -791,7 +812,32 @@ function updateCombat(dt) {
         let ent = state.battle.entities[i];
 
         if (ent.type === 'enemy') {
-            ent.y += ent.speed * (dt / 1000);
+            const allies = state.battle.entities.filter(e => e.type === 'ally' && e.hp > 0);
+            if (allies.length > 0) {
+                // Seek nearest ally
+                let nearest = allies[0];
+                let minDist = Math.hypot(nearest.x - ent.x, nearest.y - ent.y);
+                for (let j = 1; j < allies.length; j++) {
+                    const d = Math.hypot(allies[j].x - ent.x, allies[j].y - ent.y);
+                    if (d < minDist) {
+                        minDist = d;
+                        nearest = allies[j];
+                    }
+                }
+
+                const dx = nearest.x - ent.x;
+                const dy = nearest.y - ent.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 2) {
+                    const moveDist = ent.speed * (dt / 1000);
+                    ent.x += (dx / dist) * moveDist;
+                    ent.y += (dy / dist) * moveDist;
+                }
+            } else {
+                // No allies, move toward wall
+                ent.y += ent.speed * (dt / 1000);
+            }
+
             if (ent.y >= wallY) {
                 // Hit wall
                 state.battle.wallHP = Math.max(0, state.battle.wallHP - ent.damage);
@@ -906,7 +952,9 @@ function updateCombat(dt) {
                     }
 
                     if (dist > 3) {
-                        const moveDist = ent.speed * (dt / 1000);
+                        const isWaveBreak = (state.battle.enemiesSpawnedThisDay >= 20 && activeEnemies.length === 0);
+                        const moveSpeed = isWaveBreak ? ent.speed * 4 : ent.speed;
+                        const moveDist = moveSpeed * (dt / 1000);
                         ent.x += nx * moveDist;
                         ent.y += ny * moveDist;
                     }
@@ -920,32 +968,41 @@ function updateCombat(dt) {
             }
         }
         else if (ent.type === 'projectile') {
-            if (ent.target && ent.target.hp > 0) {
-                // Homing missile logic
-                const dx = ent.target.x - ent.x;
-                const dy = ent.target.y - ent.y;
-                const dist = Math.hypot(dx, dy);
-                if (dist < 10) {
-                    // Hit!
-                    ent.target.hp -= ent.damage;
-                    ent.hp = 0; // kill projectile
+            const hasTarget = ent.target && ent.target.hp > 0;
+            if (hasTarget) {
+                // Track last known position
+                ent.lastTargetX = ent.target.x;
+                ent.lastTargetY = ent.target.y;
+            }
 
-                    if (ent.target.hp <= 0) {
-                        // Economy rebalance: No gold per kill
-                        // state.gold += 10;
-                        // spawnFloatingText('+10💰', ent.target.x, ent.target.y, '#facc15');
-                        // updateShopUI();
-                    }
-                } else {
-                    const moveDist = ent.speed * (dt / 1000);
-                    if (dist > 0) {
-                        ent.x += (dx / dist) * moveDist;
-                        ent.y += (dy / dist) * moveDist;
-                    }
+            const targetX = hasTarget ? ent.target.x : (ent.lastTargetX || ent.x);
+            const targetY = hasTarget ? ent.target.y : (ent.lastTargetY || ent.y);
+
+            const dx = targetX - ent.x;
+            const dy = targetY - ent.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < 15) {
+                // Hit or reached target point!
+                if (ent.isFireball) {
+                    const splashRadius = 100;
+                    const targets = state.battle.entities.filter(e => e.type === 'enemy' && e.hp > 0);
+                    targets.forEach(t => {
+                        const d = Math.hypot(t.x - ent.x, t.y - ent.y);
+                        if (d <= splashRadius) {
+                            t.hp -= ent.damage;
+                        }
+                    });
+                    spawnExplosionEffect(ent.x, ent.y, splashRadius);
+                    spawnFloatingText("BOOM!", ent.x, ent.y, "#ef4444");
+                } else if (hasTarget) {
+                    ent.target.hp -= ent.damage;
                 }
+                ent.hp = 0; // kill projectile
             } else {
-                ent.y -= ent.speed * (dt / 1000); // go straight if target lost
-                if (ent.y <= 0) ent.hp = 0;
+                const moveDist = ent.speed * (dt / 1000);
+                ent.x += (dx / dist) * moveDist;
+                ent.y += (dy / dist) * moveDist;
             }
         }
     }
@@ -1008,10 +1065,20 @@ function spawnEnemy() {
             y: 20,
             radius: 15,
             hp: 30 + bonusStat,
-            damage: 10 + bonusStat,
             speed: 30
         });
     }
+}
+
+function spawnExplosionEffect(x, y, radius) {
+    const el = document.createElement('div');
+    el.className = 'explosion-ring';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    // The CSS animation handles the growth, but we can sync the max size
+    // For 100px radius, diameter is 200px, which matches the CSS keyframe.
+    DOM.entitiesLayer.appendChild(el);
+    setTimeout(() => el.remove(), 600);
 }
 
 function spawnFloatingText(text, x, y, color) {
@@ -1115,8 +1182,11 @@ function triggerBuilding(b, idx) {
                     radius: 5,
                     hp: 1,
                     damage: 20 * b.level * statMult,
-                    speed: 300,
-                    target: target
+                    speed: 600,
+                    target: target,
+                    lastTargetX: target.x,
+                    lastTargetY: target.y,
+                    isFireball: true
                 });
             }
         }
