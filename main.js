@@ -16,7 +16,8 @@ const state = {
         startIndex: -1, // index in grid or hand
         buildingData: null,
         offsetX: 0,
-        offsetY: 0
+        offsetY: 0,
+        isOverSellZone: false
     },
 
     battle: {
@@ -37,6 +38,11 @@ const state = {
     cardLevels: {
         angel: 1, fireball: 1, mine: 1, titan: 1, dragon: 1, gaze: 1
     },
+    // Dynamic Stats (Upgradable)
+    wallMaxHP: WALL_MAX_HP,
+    buildingSpeedMult: 1.0,
+    allyStatMult: 1.0,
+    costOffset: 0,
     cards: {
         hand: [],
         next: null
@@ -46,7 +52,7 @@ const state = {
 
 const BUILDING_TYPES = {
     angel: { icon: '👼', cost: 2, quality: 1 },
-    mine: { icon: '⛏️', cost: 5, quality: 1 },
+    mine: { icon: '⛏️', cost: 9, quality: 2 },
     fireball: { icon: '🔥', cost: 4, quality: 2 },
     titan: { icon: '🧌', cost: 5, quality: 3 },
     dragon: { icon: '🐉', cost: 8, quality: 3 },
@@ -63,7 +69,8 @@ const DOM = {
     entitiesLayer: document.getElementById('entities-layer'),
     wallHpFill: document.getElementById('wall-hp-fill'),
     goldDisplay: document.getElementById('energy-number'),
-    phaseText: document.getElementById('phase-text')
+    phaseText: document.getElementById('phase-text'),
+    sellZone: document.getElementById('sell-zone')
 };
 
 function init() {
@@ -197,7 +204,8 @@ function playCard(index) {
     const cardType = state.cards.hand[index];
     if (!cardType) return; // Empty slot or invalid
 
-    const cost = BUILDING_TYPES[cardType].cost;
+    const baseCost = BUILDING_TYPES[cardType].cost;
+    const cost = Math.max(1, baseCost - (state.costOffset || 0));
     if (state.gold < cost) {
         showToast(`能量不足！(需要${cost}点)`, "error");
         return;
@@ -268,7 +276,7 @@ function renderCardHand(playedIndex = -1) {
     state.cards.hand.forEach((cardType, idx) => {
         const cardEl = document.createElement('div');
         const config = BUILDING_TYPES[cardType];
-        const cost = config.cost;
+        const cost = Math.max(1, config.cost - (state.costOffset || 0));
         cardEl.className = `card-slot play-card quality-${config.quality}`;
         cardEl.dataset.index = idx; // Essential for drag-and-drop recognition
         if (state.gold < cost) cardEl.classList.add('unaffordable');
@@ -279,7 +287,7 @@ function renderCardHand(playedIndex = -1) {
         }
 
         cardEl.innerHTML = `
-            <div class="icon">${BUILDING_TYPES[cardType].icon}</div>
+            <div class="icon">${config.icon}</div>
             <div class="price-tag">${cost} ⚡</div>
         `;
 
@@ -352,6 +360,11 @@ function restartGame() {
     state.battle.dayCounter = 1;
     state.battle.nightTimer = 0;
     state.maxEnergy = 10;
+    state.wallMaxHP = WALL_MAX_HP;
+    state.battle.wallHP = WALL_MAX_HP;
+    state.buildingSpeedMult = 1.0;
+    state.allyStatMult = 1.0;
+    state.costOffset = 0;
     state.regenRate = 1.0;
     state.cardLevels = { angel: 1, fireball: 1, mine: 1, titan: 1, dragon: 1, gaze: 1 };
 
@@ -458,6 +471,8 @@ function handlePointerDown(e) {
     const targetElement = buildingEl || cardEl;
     targetElement.classList.add('dragging');
 
+    if (DOM.sellZone) DOM.sellZone.classList.add('active');
+
     // Calc offset
     const rect = (buildingEl || cardEl).getBoundingClientRect();
     state.dragData.offsetX = e.clientX - rect.left;
@@ -504,6 +519,16 @@ function handlePointerMove(e) {
             if (state.dragData.sourceType === 'grid' && targetIndex == state.dragData.startIndex) return;
             targetCell.classList.add('drag-over');
         }
+
+        // Check for Sell Zone hover
+        if (DOM.sellZone) {
+            const sellZone = targetEl.closest('#sell-zone');
+            const isOver = !!sellZone;
+            if (isOver !== state.dragData.isOverSellZone) {
+                state.dragData.isOverSellZone = isOver;
+                DOM.sellZone.classList.toggle('drag-over', isOver);
+            }
+        }
     }
     updateGazeVisuals();
 }
@@ -533,9 +558,36 @@ function handlePointerUp(e) {
         }
     }
 
-    const { startIndex, buildingData, element, sourceType } = state.dragData;
+    const { startIndex, buildingData, sourceType, element, isOverSellZone } = state.dragData;
 
-    if (targetIndex !== -1) {
+    // Handle Selling
+    if (isOverSellZone) {
+        let refund = 0;
+        if (sourceType === 'card') {
+            const baseCost = BUILDING_TYPES[buildingData.type].cost;
+            const currentCost = Math.max(1, baseCost - (state.costOffset || 0));
+            refund = Math.ceil(currentCost * 0.5);
+
+            // Remove from hand and draw new
+            state.cards.hand.splice(startIndex, 1);
+            state.cards.hand.push(state.cards.next);
+            state.cards.next = drawRandomCard();
+        } else if (sourceType === 'grid') {
+            const baseCost = BUILDING_TYPES[buildingData.type].cost;
+            refund = Math.ceil(baseCost * 0.5 * buildingData.level);
+
+            // Remove from grid
+            state.grid[startIndex] = null;
+            renderCell(startIndex);
+        }
+
+        state.gold = Math.min(state.maxEnergy, state.gold + refund);
+        showToast(`已卖出，金币 +${refund}`, "success");
+        spawnFloatingText(`+${refund}⚡`, e.clientX, e.clientY - 20, '#facc15');
+        highlightEnergyBar();
+        renderCardHand();
+    }
+    else if (targetIndex !== -1) {
         if (sourceType === 'grid') {
             if (targetIndex !== startIndex) {
                 const targetData = state.grid[targetIndex];
@@ -589,7 +641,9 @@ function handlePointerUp(e) {
     // Reset
     if (element) element.classList.remove('dragging');
     state.dragData.active = false;
+    state.dragData.isOverSellZone = false;
     DOM.ghost.className = 'drag-ghost hidden';
+    if (DOM.sellZone) DOM.sellZone.classList.remove('active', 'drag-over');
 
     // Safety re-render to clear states
     if (state.grid[startIndex]) renderCell(startIndex);
@@ -600,10 +654,12 @@ function handlePointerUp(e) {
 
 function gameLoop(currentTime) {
     if (!state.battle.lastTime) state.battle.lastTime = currentTime;
-    const dt = currentTime - state.battle.lastTime;
+    let dt = currentTime - state.battle.lastTime;
     state.battle.lastTime = currentTime;
 
-    // Optional: Pause game while dragging to prevent bugs, or keep it running. Let's keep it running.
+    // Cap dt to prevent massive jumps when tab is inactive
+    if (dt > 100) dt = 100;
+
     updateCombat(dt);
     renderEntities();
 
@@ -613,7 +669,7 @@ function gameLoop(currentTime) {
 function updateCombat(dt) {
     if (state.battle.wallHP <= 0) {
         restartGame();
-        return; // Game Over handled
+        return;
     }
 
     // 0. Phase Logic
@@ -635,8 +691,8 @@ function updateCombat(dt) {
         }
     }
 
-    // Energy Regeneration: 1 energy every 3 seconds
-    const regenInterval = 3000 / state.regenRate;
+    // Energy Regeneration: 1 energy every 4 seconds (was 5s)
+    const regenInterval = 4000 / state.regenRate;
     if (state.gold < state.maxEnergy && !state.isChoosingReward) {
         state.energyRegenTimer += dt;
         if (state.energyRegenTimer >= regenInterval) {
@@ -686,7 +742,8 @@ function updateCombat(dt) {
         // Ticking
         if (!isAtCapacity) {
             const isBuffed = isCellBuffed(idx);
-            const speed = isBuffed ? 1.0 : 0.25;
+            const baseSpeed = isBuffed ? 1.0 : 0.25;
+            const speed = baseSpeed * (state.buildingSpeedMult || 1.0);
             b.timer += dt * speed;
 
             if (b.timer >= BUILDING_CD_MAX) {
@@ -973,6 +1030,8 @@ function triggerBuilding(b, idx) {
     const rect = cellDOM.getBoundingClientRect();
     const containerRect = DOM.gameContainer.getBoundingClientRect();
 
+    const statMult = state.allyStatMult || 1.0;
+
     if (b.type === 'mine') {
         const spawnX = rect.left + rect.width / 2 - containerRect.left;
         const spawnY = rect.top - containerRect.top;
@@ -994,8 +1053,8 @@ function triggerBuilding(b, idx) {
                 x: spawnX,
                 y: spawnY,
                 radius: 18,
-                hp: 100 * b.level,
-                damage: 50 * b.level,
+                hp: 100 * b.level * statMult,
+                damage: 50 * b.level * statMult,
                 speed: 40
             });
         }
@@ -1012,8 +1071,8 @@ function triggerBuilding(b, idx) {
                 x: spawnX,
                 y: spawnY,
                 radius: 14,
-                hp: 40 * b.level,
-                damage: 25 * b.level,
+                hp: 40 * b.level * statMult,
+                damage: 25 * b.level * statMult,
                 speed: 100
             });
         }
@@ -1023,18 +1082,17 @@ function triggerBuilding(b, idx) {
         const spawnY = (rect.top + rect.height / 2) - containerRect.top;
 
         if (b.type === 'angel') {
-            // Check unit cap
             const currentUnits = state.battle.entities.filter(e => e.type === 'ally' && e.origin === b.id).length;
             if (currentUnits < b.level) {
                 state.battle.entities.push({
                     id: 'a_' + Math.random().toString(36).substr(2, 9),
-                    origin: b.id, // For cap checking later
+                    origin: b.id,
                     type: 'ally',
                     x: spawnX,
                     y: spawnY,
                     radius: 12,
-                    hp: 20 * b.level,
-                    damage: 15 * b.level,
+                    hp: 20 * b.level * statMult,
+                    damage: 15 * b.level * statMult,
                     speed: 80
                 });
             }
@@ -1056,7 +1114,7 @@ function triggerBuilding(b, idx) {
                     y: spawnY,
                     radius: 5,
                     hp: 1,
-                    damage: 20 * b.level,
+                    damage: 20 * b.level * statMult,
                     speed: 300,
                     target: target
                 });
@@ -1066,7 +1124,8 @@ function triggerBuilding(b, idx) {
 }
 
 function updateWallHP() {
-    const pct = (state.battle.wallHP / WALL_MAX_HP) * 100 || 0;
+    const maxHP = state.wallMaxHP || WALL_MAX_HP;
+    const pct = (state.battle.wallHP / maxHP) * 100 || 0;
     DOM.wallHpFill.style.width = `${Math.max(0, pct)}%`;
 }
 
@@ -1112,7 +1171,7 @@ function showNightChoice() {
     DOM.phaseText.textContent = `🌙 夜间休整`;
     optionsContainer.innerHTML = '';
 
-    const choices = [
+    const pool = [
         {
             title: '强化训练',
             sub: '随机一个场上建筑等级 +1',
@@ -1123,9 +1182,6 @@ function showNightChoice() {
                     const idx = builtIndices[Math.floor(Math.random() * builtIndices.length)];
                     state.grid[idx].level++;
                     renderCell(idx);
-                    showToast(`${BUILDING_TYPES[state.grid[idx].type].icon} 等级提升！`, "success");
-                } else {
-                    showToast("场上没有可强化的建筑", "warning");
                 }
             }
         },
@@ -1136,8 +1192,7 @@ function showNightChoice() {
             action: () => {
                 state.maxEnergy += 2;
                 renderEnergySegments();
-                updateShopUI(); // Force refresh to show affordability
-                showToast(`能量上限提升至 ${state.maxEnergy}！`, "success");
+                updateShopUI();
             }
         },
         {
@@ -1146,10 +1201,76 @@ function showNightChoice() {
             icon: '🔄',
             action: () => {
                 state.regenRate += 0.2;
-                showToast(`恢复速度提升！`, "success");
+            }
+        },
+        {
+            title: '工业化',
+            sub: '建筑产速提升 30%',
+            icon: '🏭',
+            action: () => {
+                state.buildingSpeedMult += 0.3;
+            }
+        },
+        {
+            title: '城墙加固',
+            sub: '城墙上限 +500 并修满',
+            icon: '🧱',
+            action: () => {
+                state.wallMaxHP += 500;
+                state.battle.wallHP = state.wallMaxHP;
+                updateWallHP();
+            }
+        },
+        {
+            title: '士气高涨',
+            sub: '兵种生命与攻击 +25%',
+            icon: '⚔️',
+            action: () => {
+                state.allyStatMult += 0.25;
+            }
+        },
+        {
+            title: '战地医疗',
+            sub: '回复 300 点城墙血量',
+            icon: '🩹',
+            action: () => {
+                state.battle.wallHP = Math.min(state.wallMaxHP, state.battle.wallHP + 300);
+                updateWallHP();
+            }
+        },
+        {
+            title: '全线升级',
+            sub: '所有已解锁卡牌等级 +1',
+            icon: '⭐',
+            action: () => {
+                Object.keys(state.cardLevels).forEach(k => state.cardLevels[k]++);
+                state.grid.forEach((b, i) => { if (b) { b.level++; renderCell(i); } });
+            }
+        },
+        {
+            title: '成本控制',
+            sub: '所有卡牌消耗减少 1 点',
+            icon: '📉',
+            action: () => {
+                state.costOffset += 1;
+                updateShopUI();
+            }
+        },
+        {
+            title: '紧急动员',
+            sub: '立刻获得 8 点能量',
+            icon: '🔋',
+            action: () => {
+                state.gold = Math.min(state.maxEnergy, state.gold + 8);
+                updateShopUI();
+                highlightEnergyBar();
             }
         }
     ];
+
+    // Shuffle and pick 3
+    const shuffled = pool.sort(() => 0.5 - Math.random());
+    const choices = shuffled.slice(0, 3);
 
     choices.forEach(c => {
         const btn = document.createElement('div');
@@ -1162,6 +1283,7 @@ function showNightChoice() {
         btn.onclick = () => {
             c.action();
             applyRewardEnd();
+            showToast(`${c.title} 已生效！`, "success");
         };
         optionsContainer.appendChild(btn);
     });

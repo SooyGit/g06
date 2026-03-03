@@ -616,6 +616,38 @@ body {
     min-width: 65px;
     /* Increased to fit "0/10" */
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    margin-right: 10px;
+}
+
+.sell-zone {
+    width: 60px;
+    height: 36px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 2px dashed rgba(239, 68, 68, 0.4);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f87171;
+    font-weight: bold;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    pointer-events: auto;
+}
+
+.sell-zone.active {
+    opacity: 1;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.2);
+    transform: scale(1.02);
+}
+
+.sell-zone.drag-over {
+    background: #ef4444;
+    color: white;
+    border-style: solid;
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
 }
 
 .elixir-icon {
