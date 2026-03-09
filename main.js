@@ -156,7 +156,11 @@ const G = {
     steelMillLv: 1,
     refineTimer: 0,
     bestiaryLv: 1,
-    captureTarget: 0
+    captureTarget: 0,
+    autoForge: {
+        enabled: true,
+        level: 1,
+    }
 };
 
 // Instead of static recipes, dynamically generate them based on level
@@ -195,7 +199,7 @@ function mkHero(type) {
         state: 'walking', pathT: BLDS[BARRACKS_BLD_IDX].exitT,
         nextBldIdx: BARRACKS_BLD_IDX + 1,
         sideProgress: 0, currentBld: null,
-        equips: [], healTimer: 0, atkTimer: 0,
+        equips: [], healTimer: 0, forgeTimer: 0, atkTimer: 0,
         rx: barPos.rx, ry: barPos.ry,
         off: Math.random() * Math.PI * 2,
     };
@@ -242,10 +246,41 @@ function updateHeroes(dt) {
                 break;
             }
             case 'atBuilding': {
-                h.healTimer += dt;
-                h.hp = h.maxHp * (LOW_HP + (1 - LOW_HP) * Math.min(1, h.healTimer / HEAL_DUR));
-                h.rx = h.currentBld.rx + jx; h.ry = h.currentBld.ry + jy;
-                if (h.healTimer >= HEAL_DUR) { h.hp = h.maxHp; h.state = 'sideOut'; h.sideProgress = 0; }
+                const b = h.currentBld;
+                if (b.id === 'hospital') {
+                    h.healTimer += dt;
+                    h.hp = h.maxHp * (LOW_HP + (1 - LOW_HP) * Math.min(1, h.healTimer / HEAL_DUR));
+                    h.rx = b.rx + jx; h.ry = b.ry + jy;
+                    if (h.healTimer >= HEAL_DUR) { h.hp = h.maxHp; h.state = 'sideOut'; h.sideProgress = 0; }
+                } else if (b.id === 'weapon' && G.autoForge.enabled) {
+                    const costOri = Math.floor(20 * Math.pow(1.4, G.autoForge.level - 1));
+                    if (G.ori >= costOri) {
+                        h.forgeTimer += dt;
+                        h.rx = b.rx + jx; h.ry = b.ry + jy;
+                        if (h.forgeTimer >= 5000) {
+                            G.ori -= costOri;
+                            const rec = getRecipeDef(G.autoForge.level);
+                            const nAtk = forgeAffixValue(rec.baseAtk, rec.baseAtk * 1.5, 50); // Using 50 as default prof
+                            const nHp = forgeAffixValue(rec.baseHp, rec.baseHp * 1.5, 50);
+                            const newEq = {
+                                name: rec.name, icon: rec.icon, lv: rec.lv, q: rec.q,
+                                atk: nAtk, hp: nHp, subs: [], prof: 50, isForged: true
+                            };
+                            // Apply stats immediately
+                            h.atk = h.baseAtk + newEq.atk;
+                            h.maxHp = HTYPES[h.type].hp + newEq.hp;
+                            h.hp = h.maxHp; // Full heal on new gear
+                            if (!h.equips.find(e => e.icon === newEq.icon)) h.equips.push({ icon: newEq.icon });
+
+                            h.forgeTimer = 0;
+                            h.state = 'sideOut'; h.sideProgress = 0;
+                        }
+                    } else {
+                        h.state = 'sideOut'; h.sideProgress = 0;
+                    }
+                } else {
+                    h.state = 'sideOut'; h.sideProgress = 0;
+                }
                 break;
             }
             case 'sideOut': {
@@ -1007,7 +1042,10 @@ function loop(ts) {
         updateEconomy(dt);
         drawCapture(ctx, c.width, c.height);
     }
-    if (ts % 500 < dt) renderUI();
+    if (ts % 500 < dt) {
+        renderUI();
+        if (!$('modal-weapon').classList.contains('hidden')) renderAutoForgeStatus();
+    }
     requestAnimationFrame(loop);
 }
 
@@ -1185,8 +1223,24 @@ function openWeaponShop() {
     $('weapon-view-forge').classList.add('hidden');
     $('weapon-view-result').classList.add('hidden');
     $('modal-weapon').classList.remove('hidden');
+
+    // Reset to inventory tab by default
+    switchWeaponTab('inv');
     renderInventory();
 }
+
+function switchWeaponTab(tab) {
+    document.querySelectorAll('.w-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.querySelectorAll('.w-tab-content').forEach(content => {
+        content.classList.toggle('hidden', !content.id.endsWith(tab));
+    });
+}
+
+document.querySelectorAll('.w-tab-btn').forEach(btn => {
+    btn.onclick = () => switchWeaponTab(btn.dataset.tab);
+});
 
 function renderInventory() {
     const list = $('weap-inv-list');
@@ -1205,24 +1259,28 @@ function renderInventory() {
 }
 
 function renderEqStats(eq, prefix) {
+    if (!$(`${prefix}-name`)) return;
     $(`${prefix}-name`).textContent = eq.name;
     $(`${prefix}-name`).className = `equip-name q${eq.q}`;
-    document.querySelector(`#${prefix}-card .equip-icon`).textContent = eq.icon;
-    document.querySelector(`#${prefix}-card .equip-icon`).className = `equip-icon q${eq.q}`;
+    const iconEl = document.querySelector(`#${prefix}-card .equip-icon`);
+    if (iconEl) {
+        iconEl.textContent = eq.icon;
+        iconEl.className = `equip-icon q${eq.q}`;
+    }
     $(`${prefix}-lv`).textContent = eq.lv;
 
     // Calculate pseudo power
     let pwr = Math.floor(eq.atk * 1 + eq.hp * 0.1);
     eq.subs.forEach(s => pwr += s.val * 5);
-    $(`${prefix}-power`).textContent = pwr;
+    if ($(`${prefix}-power`)) $(`${prefix}-power`).textContent = pwr;
 
-    $(`${prefix}-atk`).textContent = eq.atk;
-    $(`${prefix}-hp`).textContent = eq.hp;
+    if ($(`${prefix}-atk`)) $(`${prefix}-atk`).textContent = eq.atk;
+    if ($(`${prefix}-hp`)) $(`${prefix}-hp`).textContent = eq.hp;
 
     let subBox = $(`${prefix}-subs`);
     if (subBox) {
         subBox.innerHTML = '';
-        if (eq.subs.length === 0) {
+        if (!eq.subs || eq.subs.length === 0) {
             subBox.innerHTML = '<div class="stat-row sub-stat"><span>无副词条</span></div>';
         } else {
             eq.subs.forEach(s => {
@@ -1234,19 +1292,17 @@ function renderEqStats(eq, prefix) {
 }
 
 function renderWeaponShop() {
+    // Inventory Tab
     const eq = G.inventory[F.selectedIdx];
     renderEqStats(eq, 'weap-curr');
     $('weap-prof-fill').style.width = eq.prof + '%';
     $('weap-prof-text').textContent = eq.prof + '/100';
 
     let costGold = eq.lv * 10;
-    // Exponential Ori Cost: 20 * 1.4^(lv-1)
     let costOri = Math.floor(20 * Math.pow(1.4, eq.lv - 1));
     $('weap-cost-gold').textContent = costGold;
-
-    let curOri = G.ori;
-    $('weap-cost-ori').textContent = `${Math.floor(curOri)}/${costOri}`;
-    $('weap-cost-ori').style.color = curOri >= costOri ? '' : '#f87171'; // red if not enough
+    $('weap-cost-ori').textContent = `${Math.floor(G.ori)}/${costOri}`;
+    $('weap-cost-ori').style.color = G.ori >= costOri ? '' : '#f87171';
 
     let activeBtn = $('weapon-set-active-btn');
     if (F.selectedIdx === G.activeWeaponIdx) {
@@ -1262,11 +1318,55 @@ function renderWeaponShop() {
         activeBtn.disabled = false;
         activeBtn.style.opacity = '1';
     }
+
+    // Auto Forge Tab
+    $('af-toggle').checked = G.autoForge.enabled;
+    $('af-lv-val').textContent = G.autoForge.level;
+    const afCost = Math.floor(20 * Math.pow(1.4, G.autoForge.level - 1));
+    $('af-cost-val').textContent = afCost;
+
+    renderAutoForgeStatus();
 }
+
+function renderAutoForgeStatus() {
+    const list = $('af-hero-list');
+    if (!list) return;
+    list.innerHTML = '';
+    G.heroes.filter(h => h.state === 'atBuilding' && h.currentBld && h.currentBld.id === 'weapon' && h.forgeTimer > 0).forEach(h => {
+        const div = document.createElement('div');
+        div.className = 'af-hero-item';
+        const pct = (h.forgeTimer / 5000 * 100).toFixed(0);
+        div.innerHTML = `
+            <span>${h.icon}</span>
+            <div class="af-progress-bg"><div class="af-progress-fill" style="width:${pct}%"></div></div>
+            <span style="font-size:0.7rem; width:30px; text-align:right">${pct}%</span>
+        `;
+        list.appendChild(div);
+    });
+    if (list.innerHTML === '') list.innerHTML = '<div style="text-align:center; opacity:0.4; font-size:0.8rem; padding:10px;">暂无英雄正在铸造</div>';
+}
+
+$('af-toggle').onchange = (e) => {
+    G.autoForge.enabled = e.target.checked;
+};
+
+$('af-lv-minus').onclick = () => {
+    if (G.autoForge.level > 1) {
+        G.autoForge.level--;
+        renderWeaponShop();
+    }
+};
+
+$('af-lv-plus').onclick = () => {
+    G.autoForge.level++;
+    renderWeaponShop();
+};
+
+$('af-close-btn').onclick = () => $('modal-weapon').classList.add('hidden');
 
 $('weapon-set-active-btn').onclick = () => {
     G.activeWeaponIdx = F.selectedIdx;
-    renderInventory(); // refresh list to show indicator
+    renderInventory();
 };
 
 $('weapon-forge-start-btn').onclick = () => {

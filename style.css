@@ -1206,3 +1206,181 @@ body {
 .capture-ui * {
     pointer-events: auto;
 }
+
+/* Weapon Shop Tabs */
+.weapon-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+}
+
+.w-tab-btn {
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-dim);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.w-tab-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    box-shadow: 0 0 10px rgba(233, 69, 96, 0.3);
+}
+
+.w-tab-content.hidden {
+    display: none;
+}
+
+/* Auto Forge Panel */
+.autoforge-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 10px;
+    text-align: left;
+}
+
+.af-setting {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px 15px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.af-level-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-weight: 900;
+    font-size: 1.1rem;
+}
+
+.af-level-ctrl button {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    cursor: pointer;
+}
+
+.af-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.af-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+}
+
+.af-status {
+    margin-top: 10px;
+}
+
+.af-status-title {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+
+.af-hero-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.af-hero-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+.af-progress-bg {
+    flex: 1;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.af-progress-fill {
+    height: 100%;
+    background: var(--gold);
+    transition: width 0.1s linear;
+}
+
+/* Switch Toggle Component */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: .4s;
+    border: 1px solid var(--border);
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked+.slider {
+    background-color: var(--accent);
+}
+
+input:checked+.slider:before {
+    transform: translateX(20px);
+}
+
+.slider.round {
+    border-radius: 24px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
